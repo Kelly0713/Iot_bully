@@ -1,13 +1,16 @@
 import cv2
 import time
 import pyttsx3
+import sounddevice as sd
+import numpy as np
+from scipy.signal import find_peaks
 from ultralytics import YOLO
 
 # 初始化語音引擎
 engine = pyttsx3.init()
-engine.setProperty('rate', 150)  # 語速可調整
+engine.setProperty('rate', 150)
 
-# 載入 YOLOv8 pose 模型
+# 初始化 YOLOv8 pose 模型
 model = YOLO('yolov8n-pose.pt')
 
 # 開啟攝影機
@@ -16,13 +19,14 @@ if not cap.isOpened():
     print("❌ 無法開啟攝影機")
     exit()
 
-print("🔴 使用 YOLOv8 Pose 偵測霸凌，按 Q 結束")
-
-# 初始化警報冷卻機制
+# 初始參數
 last_alarm_time = 0
-cooldown = 5  # 每 5 秒最多觸發一次
+cooldown = 5  # 秒
+sound_threshold = 0.4  # 聲音突波門檻
 
-def check_bullying(keypoints):
+print("🔴 使用聲音 + 姿勢結合方式偵測霸凌，按 Q 結束")
+
+def check_bullying_pose(keypoints):
     for person in keypoints:
         if len(person) >= 6:
             left_shoulder = person[5]
@@ -33,8 +37,16 @@ def check_bullying(keypoints):
                     return True
     return False
 
+def check_sound_peak():
+    duration = 0.5  # 秒
+    fs = 16000  # 取樣率
+    audio = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='float32')
+    sd.wait()
+    volume_norm = np.linalg.norm(audio)  # 音量強度
+    return volume_norm > sound_threshold
+
 def speak_warning():
-    engine.say("已偵測到霸凌行為，請停止")
+    engine.say("已偵測到霸凌行為，請立刻停止")
     engine.runAndWait()
 
 while True:
@@ -44,25 +56,37 @@ while True:
         continue
 
     try:
+        # 姿勢辨識
         results = model.predict(source=frame, conf=0.5, task='pose', verbose=False)
         keypoints_list = results[0].keypoints.xy.cpu().numpy()
         annotated_frame = results[0].plot()
 
-        if check_bullying(keypoints_list):
-            now = time.time()
-            if now - last_alarm_time > cooldown:
-                print("🚨 偵測到可能的霸凌行為！")
-                speak_warning()
-                last_alarm_time = now
+        # 聲音偵測（並非每一幀都偵測聲音，以節省資源）
+        now = time.time()
+        pose_alert = check_bullying_pose(keypoints_list)
+        sound_alert = check_sound_peak() if pose_alert else False
+
+        if pose_alert and sound_alert and now - last_alarm_time > cooldown:
+            print("🚨 結合聲音與姿勢偵測到霸凌行為！")
+
+            # 警告語音
+            speak_warning()
+
+            # 儲存當前畫面
+            filename = f"bullying_detected_{int(now)}.jpg"
+            cv2.imwrite(filename, frame)
+            print(f"💾 影像儲存於：{filename}")
+
+            last_alarm_time = now
 
         cv2.imshow("Bullying Detection", annotated_frame)
 
     except Exception as e:
-        print(f"❌ 推論時發生錯誤：{e}")
+        print(f"❌ 推論錯誤：{e}")
         continue
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
 cap.release()
-cv2
+cv2.destroyAllWindows()
