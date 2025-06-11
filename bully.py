@@ -1,6 +1,7 @@
 import cv2
 import time
 import pyttsx3
+import notify
 from ultralytics import YOLO
 
 # 初始化語音引擎
@@ -53,6 +54,7 @@ while True:
             if now - last_alarm_time > cooldown:
                 print("🚨 偵測到可能的霸凌行為！")
                 speak_warning()
+                notify.alert_fight(location="1號 攝影機前", time_str=time.strftime("%Y-%m-%d %H:%M:%S"))
                 last_alarm_time = now
 
         cv2.imshow("Bullying Detection", annotated_frame)
