@@ -1,9 +1,6 @@
 import cv2
 import time
 import pyttsx3
-import sounddevice as sd
-import numpy as np
-from scipy.signal import find_peaks
 from ultralytics import YOLO
 
 # 初始化語音引擎
@@ -22,9 +19,8 @@ if not cap.isOpened():
 # 初始參數
 last_alarm_time = 0
 cooldown = 5  # 秒
-sound_threshold = 0.4  # 聲音突波門檻
 
-print("🔴 使用聲音 + 姿勢結合方式偵測霸凌，按 Q 結束")
+print("🔴 使用姿勢偵測霸凌，按 Q 結束")
 
 def check_bullying_pose(keypoints):
     for person in keypoints:
@@ -36,14 +32,6 @@ def check_bullying_pose(keypoints):
                 if diff > 60:
                     return True
     return False
-
-def check_sound_peak():
-    duration = 0.5  # 秒
-    fs = 16000  # 取樣率
-    audio = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='float32')
-    sd.wait()
-    volume_norm = np.linalg.norm(audio)  # 音量強度
-    return volume_norm > sound_threshold
 
 def speak_warning():
     engine.say("已偵測到霸凌行為，請立刻停止")
@@ -61,19 +49,15 @@ while True:
         keypoints_list = results[0].keypoints.xy.cpu().numpy()
         annotated_frame = results[0].plot()
 
-        # 聲音偵測（並非每一幀都偵測聲音，以節省資源）
         now = time.time()
-        pose_alert = check_bullying_pose(keypoints_list)
-        sound_alert = check_sound_peak() if pose_alert else False
-
-        if pose_alert and sound_alert and now - last_alarm_time > cooldown:
-            print("🚨 結合聲音與姿勢偵測到霸凌行為！")
+        if check_bullying_pose(keypoints_list) and now - last_alarm_time > cooldown:
+            print("🚨 偵測到疑似霸凌行為！")
 
             # 警告語音
             speak_warning()
 
             # 儲存當前畫面
-            filename = f"bullying_detected_{int(now)}.jpg"
+            filename = f"{int(now)}.jpg"
             cv2.imwrite(filename, frame)
             print(f"💾 影像儲存於：{filename}")
 
